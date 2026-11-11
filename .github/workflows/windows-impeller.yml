@@ -1,0 +1,92 @@
+name: Windows Impeller experimental build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - windows/runner/main.cpp
+      - .agents/flutter-upgrade.md
+      - .github/workflows/windows-impeller.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-impeller-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Windows x64 installer and ZIP
+    runs-on: windows-2022
+    timeout-minutes: 90
+    env:
+      FLUTTER_VERSION: '3.47.6'
+      GO_VERSION: '1.27.1'
+    steps:
+      - name: Checkout with submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Enable long paths
+        shell: pwsh
+        run: git config --global core.longpaths true
+
+      - name: Verify Impeller has not been disabled
+        shell: pwsh
+        run: |
+          if (Select-String -Path windows/runner/main.cpp -Pattern 'ImpellerSwitch::Disabled' -SimpleMatch) {
+            throw 'Windows Impeller must remain enabled for this experimental build.'
+          }
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: core/go.sum
+
+      - name: Setup Rust cache
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: windows-impeller
+          workspaces: |
+            services/helper
+            plugins/rust_api/rust
+          cache-directories: .dart_tool/hooks_runner
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Get Flutter dependencies
+        shell: pwsh
+        run: |
+          flutter --version
+          flutter pub get
+
+      - name: Fetch pinned CA certificates
+        shell: bash
+        env:
+          CA_BUNDLE: cacert-2026-09-25.pem
+          CA_BUNDLE_SHA256: a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505
+        run: |
+          bundle=core/Clash.Meta/component/ca/ca-certificates.crt
+          curl -fsSL --retry 3 -o "$bundle" "https://curl.se/ca/$CA_BUNDLE"
+          echo "$CA_BUNDLE_SHA256  $bundle" | sha256sum -c -
+
+      - name: Package Windows EXE and ZIP
+        shell: pwsh
+        run: dart setup.dart windows --env pre --targets exe,zip -v
+
+      - name: Upload Windows build
+        uses: actions/upload-artifact@v4
+        with:
+          name: FlClash-Windows-Impeller-x64
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14

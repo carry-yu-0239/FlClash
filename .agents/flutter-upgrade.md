@@ -29,21 +29,24 @@ Hotfix releases (3.47.x) carry only cherry-picks listed in the SDK's `CHANGELOG.
   dashboard pages on an Intel Mac with its integrated GPU driving the built-in display; an external display can
   switch to the discrete GPU and hide the flicker.
 
-## Impeller disabled on Windows
+## Windows Impeller experiment (carry-yu-0239 fork)
 
-- **Bug:** [flutter/flutter#193504](https://github.com/flutter/flutter/issues/193504), reported here as #2423. From
-  3.47 the Windows embedder enables Impeller by default (`flutter_windows_engine.cc`). On some machines (seen on
-  Windows 11 26200 with an Intel Arc integrated GPU) dragging a window edge freezes the window on its last frame:
-  the EGL context is lost, no frame of the new size is ever produced, and every later frame is dropped while Dart
-  keeps running. A dump shows no thread blocked; hiding and showing the window leaves it white until the app is
-  restarted. Upstream could not reproduce it and the issue is still open.
-- **Workaround:** `wWinMain` in `windows/runner/main.cpp` calls
-  `project.set_impeller_switch(flutter::ImpellerSwitch::Disabled)`, so every Windows build renders with Skia. Release
-  builds ignore `FLUTTER_ENGINE_SWITCHES`, so users cannot turn Impeller off themselves.
-- **Side effect:** Windows draws Liquid Glass through its Skia fallback, and blur, shadows and text render as Skia
-  does; judge Windows visual reports against Skia.
-- **Remove when:** a stable `FLUTTER_VERSION` fixes #193504. Before dropping the call, build with Impeller on that SDK
-  and drag every window edge for a minute on a machine that reproduced the freeze; the window has to keep redrawing.
+- **Reason:** upstream [flutter/flutter#193504](https://github.com/flutter/flutter/issues/193504) /
+  [FlClash#2423](https://github.com/chen08209/FlClash/issues/2423) describe Windows
+  resizing freezing with Flutter 3.47 Impeller, particularly on an Intel Arc GPU.
+  Upstream FlClash disables it for all Windows builds as a stability workaround.
+- **Fork change:** this fork removes the explicit `ImpellerSwitch::Disabled`
+  override from `windows/runner/main.cpp`. Flutter 3.47.6's Windows default is
+  Impeller, which supports `ImageFilter.isShaderFilterSupported` and enables
+  `prism_ui`'s fragment-shader glass refraction instead of the Skia frost fallback.
+- **CI:** `.github/workflows/windows-impeller.yml` packages Windows x64 EXE and ZIP
+  using the existing `dart setup.dart windows` pipeline. An Actions build
+  validates compilation and packaging, **not** live GPU rendering.
+- **Risk and validation:** on real Windows hardware, enable Ultra glass, drag
+  every window edge repeatedly, resize between mobile/desktop layouts, minimize,
+  restore, and verify the window keeps redrawing. If it freezes or turns white,
+  reintroduce `project.set_impeller_switch(flutter::ImpellerSwitch::Disabled)`
+  to return to Skia. This fork build is an experiment, not an upstream fix.
 
 ## Wrong-size back buffer on macOS
 
