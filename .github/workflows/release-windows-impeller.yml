@@ -1,0 +1,92 @@
+name: Release Windows Impeller experimental build
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/release-windows-impeller.yml
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Validate previously successful Windows build
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runId = 42986211078;
+            const expectedSha = '0968cdbbc93ed17a08eed0fb9c1c5a8e05f09cf3';
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId,
+            });
+            if (run.conclusion !== 'success' || run.head_sha !== expectedSha || run.head_branch !== 'main') {
+              core.setFailed(`Unexpected source build: ${run.conclusion}, ${run.head_sha}, ${run.head_branch}`);
+            }
+
+      - name: Download verified Windows build artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: FlClash-Windows-Impeller-x64
+          run-id: 42986211078
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: release-dist
+
+      - name: Inspect release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          find release-dist -maxdepth 2 -type f -printf '%P (%s bytes)\n'
+          test -n "$(find release-dist -type f -iname '*.exe' -print -quit)"
+          test -n "$(find release-dist -type f -iname '*.zip' -print -quit)"
+          cd release-dist
+          find . -type f \( -iname '*.exe' -o -iname '*.zip' \) -print0 | xargs -0 sha256sum
+
+      - name: Publish prerelease with EXE and ZIP
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.9.3-impeller.1
+          target_commitish: 0968cdbbc93ed17a08eed0fb9c1c5a8e05f09cf3
+          name: FlClash Windows x64 - Impeller Liquid Glass (Experimental)
+          draft: false
+          prerelease: true
+          make_latest: false
+          fail_on_unmatched_files: true
+          files: |
+            release-dist/*.exe
+            release-dist/*.zip
+          body: |
+            ## Windows Impeller / Liquid Glass experimental build
+
+            This is an **unofficial experimental fork build**, based on FlClash
+            `0.9.3+2026110401`. It is not an upstream FlClash stable release.
+
+            ### What's changed
+
+            - Removes the Windows `ImpellerSwitch::Disabled` override, allowing
+              Flutter 3.47.6 to use Impeller and enabling prism_ui's
+              fragment-shader glass refraction.
+            - No proxy-core or configuration-format changes are intended.
+            - Windows x64 installer (EXE) and portable ZIP are attached below.
+
+            ### Known risks
+
+            Windows Impeller has had window-resize / GPU context-loss issues.
+            This build was compiled successfully by GitHub Actions, **but has
+            not been validated on physical Windows GPUs**. Enable Liquid Glass
+            Ultra and test window dragging, resizing, minimizing, and restoring.
+            If freezing or white screens occur, revert to the official build.
+
+            ### Build provenance
+
+            - Source commit: `0968cdbbc93ed17a08eed0fb9c1c5a8e05f09cf3`
+            - [Successful Windows Actions run](https://github.com/carry-yu-0239/FlClash/actions/runs/42986211078)
+            - Upstream compatibility references: [FlClash #2423](https://github.com/chen08209/FlClash/issues/2423)
+              and [Flutter #193504](https://github.com/flutter/flutter/issues/193504)
